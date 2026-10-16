@@ -1,0 +1,31 @@
+[package]
+name = "libreofficekit-runtime"
+description = "Download, install, trim and package LibreOffice runtimes for libreofficekit-rs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["download"]
+# Download and install prebuilt runtime packages.
+download = ["dep:ureq"]
+# Build runtime packages from official LibreOffice releases (used by CI, the `lok-pack`
+# tool and the `bundled` feature of libreofficekit-rs).
+builder = ["download", "dep:flate2", "dep:ar", "dep:xz2", "zstd/zstdmt"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
+zstd = "0.13"
+ureq = { version = "3", optional = true }
+flate2 = { version = "1", optional = true }
+ar = { version = "0.9", optional = true }
+xz2 = { version = "0.1", optional = true, features = ["static"] }
+
+[[bin]]
+name = "lok-pack"
+required-features = ["builder"]

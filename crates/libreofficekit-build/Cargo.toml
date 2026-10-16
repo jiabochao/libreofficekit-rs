@@ -1,0 +1,11 @@
+[package]
+name = "libreofficekit-build"
+description = "Build-script helper for libreofficekit-rs: libreofficekit-runtime with the builder enabled."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libreofficekit-runtime = { path = "../libreofficekit-runtime", features = ["builder"] }

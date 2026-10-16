@@ -1,0 +1,41 @@
+[workspace]
+members = [".", "crates/libreofficekit-runtime", "crates/libreofficekit-build"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/jiabochao/libreofficekit-rs"
+
+[package]
+name = "libreofficekit-rs"
+description = "Rust bindings for LibreOfficeKit with runtime loading, document-to-PDF conversion and a trimmed LibreOffice runtime to ship with apps."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# `links` lets a dependent build script read DEP_LIBREOFFICEKIT_RUNTIME_DIR when the
+# `bundled` feature prepared a runtime at build time (e.g. to copy it into Tauri resources).
+links = "libreofficekit"
+build = "build.rs"
+
+[lib]
+name = "libreofficekit"
+
+[features]
+default = []
+# Prepare a LibreOffice runtime at build time: download the prebuilt package for the target,
+# or fall back to downloading the official LibreOffice release and trimming it locally.
+bundled = ["dep:libreofficekit-build"]
+
+[dependencies]
+libloading = "0.8"
+
+[build-dependencies]
+libreofficekit-build = { path = "crates/libreofficekit-build", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

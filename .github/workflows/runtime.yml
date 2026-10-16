@@ -1,0 +1,110 @@
+# Builds the trimmed LibreOffice runtime packages, tests document conversion with each one on
+# a native runner, and publishes them as release assets.
+#
+# Publish: push a tag named like `lok-pack info` prints, e.g. `runtime-26.2.6.3-r1`
+# (LO_VERSION and REVISION in crates/libreofficekit-runtime/src/lib.rs).
+name: runtime
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["runtime-*"]
+  pull_request:
+    paths:
+      - "crates/libreofficekit-runtime/**"
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/runtime.yml"
+
+jobs:
+  package:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, os: ubuntu-24.04 }
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm }
+          - { platform: windows-x86_64, os: windows-2025 }
+          - { platform: windows-aarch64, os: windows-11-arm }
+          - { platform: macos-aarch64, os: macos-15 }
+          - { platform: macos-x86_64, os: macos-15-intel }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache official LibreOffice download
+        uses: actions/cache@v4
+        with:
+          path: official
+          key: official-${{ matrix.platform }}-${{ hashFiles('crates/libreofficekit-runtime/src/lib.rs') }}
+
+      - name: Build package
+        shell: bash
+        run: |
+          cargo run --release -p libreofficekit-runtime --features builder --bin lok-pack -- \
+            build --platform ${{ matrix.platform }} --cache official --out dist
+          rm -rf dist/libreoffice-*-${{ matrix.platform }}   # keep only the archive + checksum
+          ls -la dist
+
+      - name: Install and export package
+        shell: bash
+        run: |
+          lok_pack="cargo run -q --release -p libreofficekit-runtime --features builder --bin lok-pack --"
+          archive=$(ls dist/*.tar.zst)
+          runtime=$($lok_pack install installed --platform ${{ matrix.platform }} --archive "$archive")
+          # The layout apps ship (LibreOffice.bundle / libreoffice/), tested below.
+          exported=$($lok_pack export exported --from "$runtime")
+          echo "LOK_PROGRAM_DIR=$exported" >> "$GITHUB_ENV"
+
+      - name: Sign exported bundle (macOS, ad-hoc)
+        if: runner.os == 'macOS'
+        run: |
+          cargo run -q --release -p libreofficekit-runtime --features builder --bin lok-pack -- \
+            sign "$LOK_PROGRAM_DIR" --identity - --no-timestamp
+          codesign --verify --deep --strict --verbose=2 "$LOK_PROGRAM_DIR"
+          # App Store builds may not contain unsandboxed executables.
+          ! find "$LOK_PROGRAM_DIR" -type f -perm +111 -exec file {} + | grep "Mach-O.*executable"
+
+      - name: Install runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libnss3 libcups2t64 libcairo2 libxext6 libavahi-client3 fonts-noto-cjk
+
+      - name: Test conversion
+        shell: bash
+        run: cargo test --test convert -- --nocapture
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/runtime-')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Check the tag matches the crate
+        run: |
+          expected=$(grep -oP 'LO_VERSION: &str = "\K[^"]+' crates/libreofficekit-runtime/src/lib.rs)
+          rev=$(grep -oP 'REVISION: u32 = \K[0-9]+' crates/libreofficekit-runtime/src/lib.rs)
+          test "${GITHUB_REF_NAME}" = "runtime-${expected}-r${rev}"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "LibreOffice runtime $GITHUB_REF_NAME" \
+              --notes "Trimmed LibreOffice runtimes for libreofficekit-rs. Source: official LibreOffice releases (MPL-2.0)."
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          (cd dist && sha256sum -c *.sha256)
