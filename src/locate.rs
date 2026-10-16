@@ -206,4 +206,16 @@ mod tests {
             "file:///nonexistent%20dir/%E6%96%87%E6%A1%A3%20%231.docx"
         );
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_url_escapes() {
+        let url = path_to_file_url(Path::new(r"Q:\nonexistent dir\文档 #1.docx")).unwrap();
+        assert_eq!(
+            url,
+            "file:///Q:/nonexistent%20dir/%E6%96%87%E6%A1%A3%20%231.docx"
+        );
+        let url = path_to_file_url(Path::new(r"\\server\share\a b.docx")).unwrap();
+        assert_eq!(url, "file://server/share/a%20b.docx");
+    }
 }
